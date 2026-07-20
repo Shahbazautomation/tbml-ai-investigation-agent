@@ -1,0 +1,604 @@
+{
+  "name": "TBML Red-Flag Detection Agent",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2432,
+        -528
+      ],
+      "id": "751fbe42-2af9-46c3-a2db-571dfbe8381e",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  item.json.myNewField = 1;\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2432,
+        -48
+      ],
+      "id": "f7c71c6b-1297-4cd3-9ddb-5a83ef62cf85",
+      "name": "🧹 Data Normalization"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1N-188ybkOc5T8K-Mebk0MsS4OLqra5nj6NiPskdepCw",
+          "mode": "list",
+          "cachedResultName": "TBML Dataset",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1N-188ybkOc5T8K-Mebk0MsS4OLqra5nj6NiPskdepCw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Trade_Transactions",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1N-188ybkOc5T8K-Mebk0MsS4OLqra5nj6NiPskdepCw/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -2432,
+        -288
+      ],
+      "id": "5786489e-bf8e-45bf-af0f-a3d254b5cc0f",
+      "name": "📥 Load Trade Transactions",
+      "retryOnFail": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "joRebqo2M4dgMVKx",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n\n  const row = item.json;\n\n  let riskScore = 0;\n  let redFlags = [];\n\n  // Rule 1\n  // High Declared Value\n\n  if (row.declared_value_usd > 100000) {\n    riskScore += 20;\n    redFlags.push(\"High declared transaction value\");\n  }\n\n  // Rule 2\n  // Large Quantity\n\n  if (row.quantity > 50000) {\n    riskScore += 15;\n    redFlags.push(\"Unusually large shipment quantity\");\n  }\n\n  // Rule 3\n  // High-Risk Countries\n\n  const highRiskCountries = [\n    \"Iran\",\n    \"North Korea\",\n    \"Afghanistan\",\n    \"Syria\"\n  ];\n\n  if (\n    highRiskCountries.includes(row.origin_country) ||\n    highRiskCountries.includes(row.destination_country)\n  ) {\n    riskScore += 30;\n    redFlags.push(\"High-risk country involved\");\n  }\n\n  // Rule 4\n  // Cash Payment\n\n  if (\n    row.payment_terms &&\n    row.payment_terms.toLowerCase().includes(\"cash\")\n  ) {\n    riskScore += 20;\n    redFlags.push(\"Cash payment\");\n  }\n\n  // Rule 5\n  // Open Account\n\n  if (\n    row.payment_terms &&\n    row.payment_terms.toLowerCase().includes(\"open\")\n  ) {\n    riskScore += 10;\n    redFlags.push(\"Open account payment\");\n  }\n\n  // Risk Level\n\n  let riskLevel = \"Low\";\n\n  if (riskScore >= 60) {\n    riskLevel = \"High\";\n  } else if (riskScore >= 30) {\n    riskLevel = \"Medium\";\n  }\n\n  // Recommendation\n\n  let recommendation = \"No immediate action\";\n\n  if (riskLevel === \"Medium\") {\n    recommendation = \"Conduct enhanced review\";\n  }\n\n  if (riskLevel === \"High\") {\n    recommendation = \"Escalate for investigation\";\n  }\n\n  return {\n\n    json: {\n\n      ...row,\n\n      risk_score: riskScore,\n\n      risk_level: riskLevel,\n\n      red_flags: redFlags,\n\n      recommendation: recommendation\n\n    }\n\n  };\n\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2464,
+        144
+      ],
+      "id": "b642ce61-cdd2-4826-a969-ca1d59c35e84",
+      "name": "⚖️ TBML Rule Engine"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n\n    const row = item.json;\n\n    let unitPrice = 0;\n\n    if (Number(row.quantity) > 0) {\n\n        unitPrice = Number(row.declared_value_usd) / Number(row.quantity);\n\n    }\n\n    return {\n\n        json: {\n\n            ...row,\n\n            calculated_unit_price: Number(unitPrice.toFixed(2))\n\n        }\n\n    };\n\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2160,
+        144
+      ],
+      "id": "a013ad77-f9ad-4c35-a929-5476971a8b23",
+      "name": "💲 Unit Price Calculator"
+    },
+    {
+      "parameters": {
+        "jsCode": "const highRiskCountries = [\n  \"Iran\",\n  \"North Korea\",\n  \"Syria\",\n  \"Afghanistan\",\n  \"Myanmar\"\n];\n\nreturn items.map(item => {\n\n    const row = item.json;\n\n    let countryRisk = \"Low\";\n\n    let countryScore = 0;\n\n    let countryFlag = \"\";\n\n    if (\n        highRiskCountries.includes(row.origin_country) ||\n        highRiskCountries.includes(row.destination_country)\n    ) {\n\n        countryRisk = \"High\";\n\n        countryScore = 30;\n\n        countryFlag = \"High-Risk Jurisdiction\";\n\n    }\n\n    return {\n\n        json: {\n\n            ...row,\n\n            country_risk: countryRisk,\n\n            country_score: countryScore,\n\n            country_flag: countryFlag\n\n        }\n\n    };\n\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2064,
+        -576
+      ],
+      "id": "16c55f54-3b86-44fa-ad92-2d780472073a",
+      "name": "🌍 Country Risk Assessment"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Count how many times each record_id appears\nconst recordCounts = {};\n\nfor (const item of items) {\n  const id = item.json.record_id;\n  recordCounts[id] = (recordCounts[id] || 0) + 1;\n}\n\nreturn items.map(item => {\n\n  const row = item.json;\n\n  const duplicate = recordCounts[row.record_id] > 1;\n\n  return {\n    json: {\n      ...row,\n\n      duplicate_record: duplicate,\n\n      duplicate_score: duplicate ? 20 : 0,\n\n      duplicate_flag: duplicate\n        ? \"Duplicate Record ID Detected\"\n        : \"\"\n    }\n  };\n\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1840,
+        -576
+      ],
+      "id": "94192c73-251a-4e49-a925-dfe017d31a55",
+      "name": "🔍 Duplicate Transaction Detection"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n\n    const row = item.json;\n\n    // Existing scores\n    const baseScore = Number(row.risk_score || 0);\n    const countryScore = Number(row.country_score || 0);\n    const duplicateScore = Number(row.duplicate_score || 0);\n\n    // Pricing score\n    let pricingScore = 0;\n\n    if (row.pricing_flag === \"Possible Over-Invoicing\") {\n        pricingScore = 25;\n    }\n\n    if (row.pricing_flag === \"Possible Under-Invoicing\") {\n        pricingScore = 25;\n    }\n\n    // Calculate total score\n    const finalScore =\n        baseScore +\n        countryScore +\n        duplicateScore +\n        pricingScore;\n\n    // Determine risk level\n    let finalRisk = \"Low\";\n\n    if (finalScore >= 20)\n        finalRisk = \"Medium\";\n\n    if (finalScore >= 50)\n        finalRisk = \"High\";\n\n    if (finalScore >= 80)\n        finalRisk = \"Critical\";\n\n    // Investigation priority\n    let priority = \"Routine\";\n\n    if (finalRisk === \"Medium\")\n        priority = \"Review\";\n\n    if (finalRisk === \"High\")\n        priority = \"Urgent\";\n\n    if (finalRisk === \"Critical\")\n        priority = \"Immediate\";\n\n    // Recommendation\n    let recommendation = \"No further action.\";\n\n    switch (finalRisk) {\n\n        case \"Medium\":\n            recommendation =\n                \"Perform Enhanced Due Diligence (EDD).\";\n            break;\n\n        case \"High\":\n            recommendation =\n                \"Refer to Senior Investigator.\";\n            break;\n\n        case \"Critical\":\n            recommendation =\n                \"Immediate investigation and STR review.\";\n            break;\n    }\n\n    return {\n\n        json: {\n\n            ...row,\n\n            pricing_score: pricingScore,\n\n            final_risk_score: finalScore,\n\n            final_risk_level: finalRisk,\n\n            investigation_priority: priority,\n\n            final_recommendation: recommendation\n\n        }\n\n    };\n\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1632,
+        -576
+      ],
+      "id": "ea61cc7d-cd24-4a5a-8ff5-5a47d7e9cc64",
+      "name": "📊 Master Risk Scoring"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-3-flash-preview",
+          "mode": "list",
+          "cachedResultName": "models/gemini-3-flash-preview"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a Senior Trade-Based Money Laundering (TBML) Investigator working for a Financial Intelligence Unit.\n\nYour responsibility is to analyze international trade transactions from an AML/CFT perspective.\n\nTransaction Details\n\nRecord ID:\n{{$json.record_id}}\n\nExporter:\n{{$json.company_a}}\n\nImporter:\n{{$json.company_b}}\n\nGoods:\n{{$json.goods_description}}\n\nDeclared Value:\n{{$json.declared_value_usd}} USD\n\nQuantity:\n{{$json.quantity}}\n\nCalculated Unit Price:\n{{$json.calculated_unit_price}}\n\nOrigin Country:\n{{$json.origin_country}}\n\nDestination Country:\n{{$json.destination_country}}\n\nPayment Terms:\n{{$json.payment_terms}}\n\nCalculated Risk Score:\n{{$json.final_risk_score}}\n\nCalculated Risk Level:\n{{$json.final_risk_level}}\n\nDetected Red Flags:\n{{$json.red_flags}}\n\nInstructions\n\nAssess the transaction as an experienced Financial Intelligence Unit investigator.\n\nConsider:\n\n• Possible over or under invoicing\n\n• Trade diversion\n\n• High-risk jurisdictions\n\n• Payment method risk\n\n• Shell company indicators\n\n• Beneficial ownership concerns\n\n• Sanctions exposure\n\n• Trade finance abuse\n\n• Trade-based money laundering typologies\n\nReturn ONLY valid JSON.\n\n{\n\"executive_summary\":\"\",\n\"transaction_profile\":\"\",\n\"risk_assessment\":\"\",\n\"financial_crime_indicators\":[],\n\"recommended_actions\":[],\n\"aml_conclusion\":\"\"\n}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        -1968,
+        -320
+      ],
+      "id": "6c7b5d2a-748a-485d-8966-342b808406e7",
+      "name": "🤖 Gemini AI Investigator",
+      "credentials": {
+        "googlePalmApi": {
+          "id": null,
+          "name": "",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const response = $json.content.parts[0].text;\n\nlet parsed = {};\n\ntry {\n  parsed = JSON.parse(response);\n} catch (e) {\n  parsed = {};\n}\n\nreturn {\n  json: parsed\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1536,
+        -320
+      ],
+      "id": "c5057b03-5228-48de-a556-c273497010ea",
+      "name": "🧠 AI Response Parser"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1N-188ybkOc5T8K-Mebk0MsS4OLqra5nj6NiPskdepCw",
+          "mode": "list",
+          "cachedResultName": "TBML Dataset",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1N-188ybkOc5T8K-Mebk0MsS4OLqra5nj6NiPskdepCw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Trade_Transactions",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1N-188ybkOc5T8K-Mebk0MsS4OLqra5nj6NiPskdepCw/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "= {{$json.record_id}}",
+            "executive_summary": "={{$json.executive_summary}}",
+            "transaction_profile": "={{$json.transaction_profile}}",
+            "risk_assessment": "={{$json.risk_assessment}}",
+            "financial_crime_indicators": "={{$json.financial_crime_indicators}}",
+            "recommended_actions": "={{$json.recommended_actions}}",
+            "aml_conclusion": "={{$json.aml_conclusion}}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company_a",
+              "displayName": "company_a",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company_b",
+              "displayName": "company_b",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "goods_description",
+              "displayName": "goods_description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "declared_value_usd",
+              "displayName": "declared_value_usd",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "quantity",
+              "displayName": "quantity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "unit",
+              "displayName": "unit",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "origin_country",
+              "displayName": "origin_country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "destination_country",
+              "displayName": "destination_country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "shipment_date",
+              "displayName": "shipment_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "payment_terms",
+              "displayName": "payment_terms",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "risk_score",
+              "displayName": "risk_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "executive_summary",
+              "displayName": "executive_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "transaction_profile",
+              "displayName": "transaction_profile",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "risk_assessment",
+              "displayName": "risk_assessment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "financial_crime_indicators",
+              "displayName": "financial_crime_indicators",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "recommended_actions",
+              "displayName": "recommended_actions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "aml_conclusion",
+              "displayName": "aml_conclusion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ai_summary",
+              "displayName": "ai_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ai_risk_assessment",
+              "displayName": "ai_risk_assessment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ai_red_flags",
+              "displayName": "ai_red_flags",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ai_recommended_investigation",
+              "displayName": "ai_recommended_investigation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ai_overall_recommendation",
+              "displayName": "ai_overall_recommendation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -1280,
+        -336
+      ],
+      "id": "d2bafeaa-91f5-4a93-a818-78cabc11e849",
+      "name": "💾 Save Investigation Results",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "joRebqo2M4dgMVKx",
+          "name": "Google Sheets account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "📥 Load Trade Transactions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧹 Data Normalization": {
+      "main": [
+        [
+          {
+            "node": "⚖️ TBML Rule Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📥 Load Trade Transactions": {
+      "main": [
+        [
+          {
+            "node": "🧹 Data Normalization",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚖️ TBML Rule Engine": {
+      "main": [
+        [
+          {
+            "node": "💲 Unit Price Calculator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "💲 Unit Price Calculator": {
+      "main": [
+        [
+          {
+            "node": "🌍 Country Risk Assessment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🌍 Country Risk Assessment": {
+      "main": [
+        [
+          {
+            "node": "🔍 Duplicate Transaction Detection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Duplicate Transaction Detection": {
+      "main": [
+        [
+          {
+            "node": "📊 Master Risk Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Master Risk Scoring": {
+      "main": [
+        [
+          {
+            "node": "🤖 Gemini AI Investigator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🤖 Gemini AI Investigator": {
+      "main": [
+        [
+          {
+            "node": "🧠 AI Response Parser",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧠 AI Response Parser": {
+      "main": [
+        [
+          {
+            "node": "💾 Save Investigation Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "💾 Save Investigation Results": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "402caf43-a5de-4e2a-aa3e-90b2f6164dda",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2a2239533bc994163ba02128b564d2ba64088e6e3dec02a360465465fb630c98"
+  },
+  "nodeGroups": [],
+  "id": "52f3qAfav5pUlncs",
+  "tags": []
+}
